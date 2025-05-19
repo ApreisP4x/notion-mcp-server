@@ -1,4 +1,5 @@
 {
+  "version": 2,
   "builds": [
     {
       "src": "api/server.js",
@@ -8,6 +9,5 @@
   "routes": [
     { "src": "/sse", "dest": "api/server.js" },
     { "src": "/test", "dest": "api/server.js" }
-  ],
-  "buildCommand": "echo 'Skipping build step'"
+  ]
 }
