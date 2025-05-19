@@ -7,5 +7,12 @@
   },
   "routes": [
     { "src": "/sse", "dest": "api/server.js" }
-  ]
+  ],
+  "builds": [
+    {
+      "src": "api/server.js",
+      "use": "@vercel/node"
+    }
+  ],
+  "buildCommand": "echo 'Skipping build step'"
 }
