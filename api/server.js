@@ -2,11 +2,21 @@ const { createServer } = require('@modelcontextprotocol/sdk');
 const fetch = require('node-fetch');
 
 module.exports = async (req, res) => {
-  // Only handle SSE requests
+  // Add a simple test endpoint
+  if (req.url === '/test') {
+    return res.status(200).json({
+      status: 'ok',
+      message: 'Notion MCP server is running',
+      env_var_exists: !!process.env.OPENAPI_MCP_HEADERS
+    });
+  }
+
+  // Rest of your code remains the same...
   if (req.method === 'GET') {
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
+    res.setHeader('Access-Control-Allow-Origin', '*'); // Add CORS header
     
     // Get headers from environment variables with fallback for testing
     const openApiMcpHeadersJson = process.env.OPENAPI_MCP_HEADERS || '{"Authorization": "Bearer test_token", "Notion-Version": "2022-06-28"}';
