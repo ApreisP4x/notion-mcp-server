@@ -1,87 +1,91 @@
-const { createServer } = require('@modelcontextprotocol/sdk');
+const express = require('express');
 const fetch = require('node-fetch');
+const cors = require('cors');
 
-module.exports = async (req, res) => {
-  // Add a simple test endpoint
-  if (req.url === '/test') {
-    return res.status(200).json({
-      status: 'ok',
-      message: 'Notion MCP server is running',
-      env_var_exists: !!process.env.OPENAPI_MCP_HEADERS
-    });
-  }
+// Create a simple MCP-compatible server
+const app = express();
+app.use(cors());
+app.use(express.json());
 
-  // Rest of your code remains the same...
-  if (req.method === 'GET') {
-    res.setHeader('Content-Type', 'text/event-stream');
-    res.setHeader('Cache-Control', 'no-cache');
-    res.setHeader('Connection', 'keep-alive');
-    res.setHeader('Access-Control-Allow-Origin', '*'); // Add CORS header
-    
-    // Get headers from environment variables with fallback for testing
-    const openApiMcpHeadersJson = process.env.OPENAPI_MCP_HEADERS || '{"Authorization": "Bearer test_token", "Notion-Version": "2022-06-28"}';
-    
+// For test endpoint
+app.get('/test', (req, res) => {
+  return res.json({
+    status: 'ok',
+    message: 'Notion API proxy is running',
+    env_var_exists: !!process.env.OPENAPI_MCP_HEADERS
+  });
+});
+
+// Simple SSE handler for MCP
+app.get('/sse', (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  
+  // Send initial connection message
+  res.write(`data: ${JSON.stringify({ type: 'connection_established' })}\n\n`);
+  
+  // Keep connection alive
+  const intervalId = setInterval(() => {
+    res.write(`data: ${JSON.stringify({ type: 'ping' })}\n\n`);
+  }, 30000);
+  
+  // Handle client messages
+  req.on('data', async (chunk) => {
     try {
-      // Parse headers from environment variable
-      const openApiMcpHeaders = JSON.parse(openApiMcpHeadersJson);
+      const data = JSON.parse(chunk.toString());
       
-      // Create MCP server
-      const server = createServer({
-        tools: [
-          {
-            name: 'notion-api',
-            description: 'Access the Notion API',
-            parameters: {
-              type: 'object',
-              properties: {
-                path: {
-                  type: 'string',
-                  description: 'The Notion API path'
-                },
-                method: {
-                  type: 'string',
-                  enum: ['GET', 'POST', 'PATCH', 'DELETE'],
-                  default: 'GET',
-                  description: 'The HTTP method'
-                },
-                body: {
-                  type: 'object',
-                  description: 'The request body for POST and PATCH requests'
-                }
-              },
-              required: ['path']
-            },
-            handler: async ({ path, method = 'GET', body }) => {
-              try {
-                // Forward request to Notion API with proper headers
-                const response = await fetch(`https://api.notion.com/v1${path}`, {
-                  method,
-                  headers: {
-                    'Content-Type': 'application/json',
-                    ...openApiMcpHeaders
-                  },
-                  body: body ? JSON.stringify(body) : undefined
-                });
-                
-                // Return response from Notion API
-                const data = await response.json();
-                return { data };
-              } catch (error) {
-                console.error('Error calling Notion API:', error);
-                return { error: error.message };
-              }
-            }
-          }
-        ]
-      });
-      
-      // Handle SSE connection
-      server.handleSseConnection(req, res);
+      // Handle MCP call
+      if (data.type === 'function_call' && data.payload && data.payload.name === 'notion-api') {
+        const params = data.payload.parameters || {};
+        const { path, method = 'GET', body } = params;
+        
+        // Get headers from environment variables
+        const headersJson = process.env.OPENAPI_MCP_HEADERS || '{}';
+        const headers = JSON.parse(headersJson);
+        
+        // Call Notion API
+        const response = await fetch(`https://api.notion.com/v1${path}`, {
+          method,
+          headers: {
+            'Content-Type': 'application/json',
+            ...headers
+          },
+          body: body ? JSON.stringify(body) : undefined
+        });
+        
+        // Get response data
+        const responseData = await response.json();
+        
+        // Send response back to client
+        res.write(`data: ${JSON.stringify({
+          type: 'function_response',
+          id: data.id,
+          payload: { data: responseData }
+        })}\n\n`);
+      }
     } catch (error) {
-      console.error('Server creation error:', error);
-      res.status(500).send(`Server creation error: ${error.message}`);
+      console.error('Error processing request:', error);
+      res.write(`data: ${JSON.stringify({
+        type: 'error',
+        payload: { message: error.message }
+      })}\n\n`);
     }
-  } else {
-    res.status(405).send('Method Not Allowed');
-  }
-};
+  });
+  
+  // Handle client disconnect
+  req.on('close', () => {
+    clearInterval(intervalId);
+  });
+});
+
+// For Vercel serverless functions
+module.exports = app;
+
+// For local development
+if (require.main === module) {
+  const PORT = process.env.PORT || 3000;
+  app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
+  });
+}
