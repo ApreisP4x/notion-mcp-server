@@ -1,0 +1,11 @@
+{
+  "functions": {
+    "api/server.js": {
+      "memory": 1024,
+      "maxDuration": 60
+    }
+  },
+  "routes": [
+    { "src": "/sse", "dest": "api/server.js" }
+  ]
+}
